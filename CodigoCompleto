@@ -1,0 +1,683 @@
+//inclusão de bibliotecas
+#include <DHT.h> //biblioteca do DHT11
+#include <Wire.h> //biblioteca para o display I2C
+#include <LiquidCrystal_I2C.h> //biblioteca para o display I2C
+#include <Keypad.h> //biblioteca para o teclado matricial 4x4
+
+//configuração do sensor DHT11
+#define DHTPIN A2 //pino utilizado pelo sensor 
+#define DHTTYPE DHT11 //modelo do sensor
+DHT dht (DHTPIN, DHTTYPE); //atribui as informações acima ao sensor
+
+//configuração do teclado matricial
+const uint8_t ROWS = 4; //quantidade de linhas
+const uint8_t COLS = 4; //quantidade de colunas
+char keys[ROWS][COLS] = {
+  { '1', '2', '3', 'A' },
+  { '4', '5', '6', 'B' },
+  { '7', '8', '9', 'C' },
+  { '*', '0', '#', 'D' }
+}; //matriz de caracteres para mapeamento do teclado
+uint8_t colPins[COLS] = { 3,7,6,5 }; //pinos conectados a C1, C2, C3, C4
+uint8_t rowPins[ROWS] = { 12,11,10,4 }; //pinos conectados a R1, R2, R3, R4
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS); //inicialização do teclado
+
+LiquidCrystal_I2C lcd(0x27, 20, 4); //configuração do display LCD
+
+//definição das strings a serem exibidas em loop no display
+String temp = "Temperatura:"; 
+String ar = "Umidade do ar:";
+String solo = "Umidade do solo:";
+String luz = "Luminosidade:";
+
+//declaração de variáveis
+unsigned long millisRes = millis(); //millis para os resistores de 10W
+unsigned long millisCoolers = millis(); //millis para os coolers de resfriamento
+unsigned long millisSolen = millis(); //millis para a solenoide
+unsigned long millisFita = millis(); //millis para a fita de led
+
+unsigned long millisLuz = millis(); //millis para o tempo de luz
+unsigned long millisTemp = millis(); //millis para exibir a temperatura atual no display
+unsigned long millisSolo = millis(); //millis para exibir a umidade do solo atual no display
+unsigned long millisAr = millis(); //millis para exibir a umidade do ar atual no display
+unsigned long millisIrrigacao = millis(); //millis para o sistema de irrigação intermitente
+
+int res =  13; //pino dos resistores de aquecimento
+int coolerRes = 8; //pino do cooler de aquecimento
+int coolers = A3;  //pino dos coolers de resfriamento
+int solen = 2; //pino da válvula solenoide
+int fita = A1; //pino da fita de led
+int sensorUmiSolo = A0; //pino do sensor de umidade do solo
+int valTemp = 0; //variável de armazenamento do valor atual de temperatura
+int valUmiAr = 0; //variável de armazenamento do valor atual de umidade do ar
+int valUmiSolo = 0; //variável de armazenamento do valor atual de umidade do solo
+
+int var = 0; //variável de redirecionamento do menu
+int v = 0; //variável de ordem dos números inseridos no teclado (modo personalizado)
+int upDown = 0; //variável das opções do menu
+int opcoes = 0; //variável das opções do submenu personalizado
+int conf2 = 0; //variável para limpar o display na função confirma do submenu personalizado
+long conf4 = 0; //variável da função confirma2  
+float num1 = 0, num2 = 0, num = 0; //variáveis de armazenamento dos números digitados no teclado
+int clear1 = 0; //variável para limpar o display nas opções do menu
+int clear2 = 0; //variável para limpar o display nas opções do submenu personalizado
+int count = 0; //variável para multiplicar o primeiro número digitado por 10
+char func; //
+
+int valTempMin = 0; //variável de armazenamento do valor mínimo de temperatura
+int valTempMax = 100; //variável de armazenamento d valor máximo de temperatura
+int valUmi = 0; //variável de armazenamento do valor ideal de umidade do solo
+float valLuz = 0; //variável de armazenamento do tempo de luz ideal
+ 
+void setup(){
+  lcd.init(); //inicializando o display
+  lcd.backlight(); //inicializando a luz de fundo do display
+  lcd.begin(16,2); //ligando o display  
+  dht.begin(); //inicializando o sensor DHT11
+  pinMode(res,OUTPUT); //configuração dos resistores de 10W como saída
+  pinMode(coolerRes,OUTPUT); //configuração do cooler de aquecimento como saída
+  pinMode(coolers,OUTPUT); //configuração dos coolers de resfriamento como saída
+  pinMode(solen,OUTPUT); //configuração da válvula solenoide como saída
+  pinMode(fita,OUTPUT); //configuração da fita de led como saída
+  pinMode(sensorUmiSolo,INPUT); //configuração do sensor de umidade do solo como entrada
+}
+
+void loop(){
+  //leitura dos sensores
+  valTemp = (dht.readTemperature()); //leitura da temperatura pelo DHT11
+  valUmiAr = (dht.readHumidity()); //leitura a umidade do ar pelo DHT11
+  valUmiSolo = analogRead(sensorUmiSolo); //leitura do sensor de umidade do solo
+  valUmiSolo = map(valUmiSolo,0,1023,100,0); //configurando o valor de umidade do solo para porcentagem
+
+  char keypressed = keypad.getKey(); //identificação da tecla pressionada no teclado
+
+  //Condições para chamar as funções
+  if(var == 1){
+      btnMenu(); //chama a função do menu
+    }else if(var == 2) {
+      btnDown(upDown); //chama a função das opções do menu
+    } else if(var == 3){
+      confirma(); //chama a função de confirmar do menu
+    }else if(var == 4){
+      personalizado(); //chama a função da opção personalizar
+    }else if(var == 5){
+      opcoesPer(opcoes, keypressed); //chama a função do submenu personalizado   
+    }else if(var == 6) {
+      confirma2(keypressed, conf4); //chama a função de confirmar do submenu personalizado
+      conf4++;
+    }else{
+      info(); //chama a função para exibir os valores do sensores em um loop     
+    }
+
+  //Para dar scroll para baixo ao pressionar a tecla 'B'
+  if(keypressed == 'B'){
+    upDown++; 
+     if(upDown > 8){ //não soma mais quando chegar à última opção do menu
+       upDown = 8;
+     }
+     if(var == 5){
+       opcoes++;
+       if(opcoes > 3){ //não soma mais quando chegar à última opção do submenu
+         opcoes = 3;
+       }
+     }
+   }
+  
+  //Para dar scroll para cima ao pressionar a tecla 'A'
+  if(keypressed == 'A'){
+    upDown--;
+    opcoes--;
+    if(upDown == 0){ //volta para a função btnMenu (inicio do menu)
+      var = 1;
+    }
+    if(opcoes == 0){ //volta para a função personalizado (inicio do submenu)
+      var = 4;
+    }
+  }
+  
+  //Para voltar ao pressionar a tecla 'D'
+  if(keypressed == 'D'){
+    var = 0;
+    upDown = 0;
+  } 
+  
+  //Para confirmar ao pressionar a tecla 'C'
+  if(keypressed == 'C'){
+    if(var == 5) {
+      var = 6;
+      conf4 = 0;
+    }
+    if(var != 6) {
+      var = 3;
+    }    
+  }
+  
+  //Para acessar o menu ao pressionar a tecla '*'
+  if(keypressed == '*'){
+    var = 1;
+  }
+
+  //sistema de iluminação
+  if((millis() - millisLuz) < valLuz){ //a fita fica ligada pelo tempo definido na variável valLuz
+    digitalWrite(fita,HIGH);
+  }else{
+    digitalWrite(fita, LOW);
+  }
+  if((millis() - millisLuz) > 86400000){ //só liga novamente após 24 horas
+    digitalWrite(fita, LOW);
+    millisLuz = millis();
+  }
+
+  //sistema de controle de temperatura
+  if(valTemp < valTempMin){ //se a temperatura for menor do que o mínimo, a função de aquecimento é chamada e os coolers são desligados
+    digitalWrite(coolers, LOW);
+    aquecimento();
+  }else{
+    millisRes = millis();
+  }
+  if(valTemp > valTempMax){ //se a temperatura for maior do que o máximo, a função de resfriamento é chamada e o resistor e o cooler são desligados
+    digitalWrite(res, LOW);
+    digitalWrite(coolerRes, LOW);
+    resfriamento();
+  }
+  else{
+    millisCoolers = millis();
+  }
+
+  //sistema de irrigação
+  if((millis() - millisIrrigacao) < 900000){ //conta 15 minutos
+     if(valUmiSolo < valUmi){ //se a umidade do solo estiver abaixo do ideal, a função de irrigação é chamada 
+       irrigacao();
+     }else{
+       digitalWrite(solen, HIGH); //se não for o caso, a solenoide fica desligada
+     }
+   }
+   if((millis() - millisIrrigacao) > 900000 && (millis() - millisIrrigacao) < 22500000){ //conta 6 horas após os 15 minutos
+      digitalWrite(solen, HIGH); //solenoide ficará desativada
+   }
+   if((millis() - millisIrrigacao) > 22500000){
+      millisIrrigacao = millis(); //o millis de irrigação é resetado
+   }
+}
+
+//função para o controle de temperatura - aquecimento
+void aquecimento(){
+  //resistores de 10W
+    if((millis() - millisRes) < 120000){ //conta 2 minutos
+      digitalWrite(res, HIGH); //resistores ligam durante 2 minutos
+    }else{
+      digitalWrite(res, LOW);
+    }
+
+  //mini cooler
+  if((millis() - millisRes) > 120000  && (millis() - millisRes) < 270000){ //conta mais 2 minutos e 30 segundos appos os 2 minutos dos resistores
+    digitalWrite(coolerRes, HIGH); //cooler liga
+    digitalWrite(res, LOW); //resistores desligam
+  }else{
+    digitalWrite(coolerRes, LOW);
+  }  
+  if((millis() - millisRes) > 270000){
+    digitalWrite(coolerRes, LOW);
+    millisRes = millis(); //millis de aquecimento é resetado 
+  }
+}
+
+//função para o controle de temperatura - resfriamento
+void resfriamento(){
+  if((millis() - millisCoolers) < 180000){ //conta 3 minutos
+      digitalWrite(coolers, HIGH); //coolers ligam
+    }else{
+      digitalWrite(coolers, LOW);
+    }  
+    if((millis() - millisCoolers) > 240000){ //conta 4 minutos
+      digitalWrite(coolers, LOW); 
+      millisCoolers = millis(); //millis dos coolers é resetado
+    }
+}
+
+//função de irrigação
+void irrigacao(){
+  if((millis() - millisSolen) < 60000){ //conta 1 minuto
+        digitalWrite(solen, LOW); //solenoide liga
+      }else{
+        digitalWrite(solen, HIGH); 
+      }  
+      if((millis() - millisSolen) > 120000){ //conta 2 minutos
+        digitalWrite(solen, HIGH); //solenoide desliga
+        millisSolen = millis(); //millis da solenoide é resetado
+      }
+}
+
+//Função do menu
+void btnMenu(){
+  if(clear1 != 1){ //limpa o display uma única vez
+    lcd.clear();
+  }
+  lcd.setCursor(0, 0);
+  lcd.print("----- MENU -----");
+  lcd.setCursor(0, 1);  
+  lcd.print("->Camomila"); //opção da camomila
+  clear1 = 1;
+  delay(100);
+
+  char keypressed = keypad.getKey();
+  if(keypressed == 'B'){ //passa para as opções do menu
+    upDown++;
+    var = 2;
+  }
+  
+  if(keypressed == 'D'){ //volta para o loop inicial
+    var = 0;
+  }
+  
+  if(keypressed == 'C'){ //seleciona a opção e entra na função confirma()
+    var = 3;
+  }
+}
+
+//Função das opções do menu
+void btnDown(int upDown){ 
+  switch(upDown){
+    case 1: //opção da salvia
+      if(clear1 != 2){ //limpa o dispay uma única vez
+        lcd.clear();
+      } 
+      lcd.setCursor(0, 0);
+      lcd.print("Camomila");
+      lcd.setCursor(0, 1);
+      lcd.print((char)126); //símbolo de seta para a direita
+      lcd.setCursor(1,1);  
+      lcd.print("Salvia");
+      clear1 = 2;
+      delay(100);
+      break;
+    case 2: //opção da rucula
+      if(clear1 != 3){ //limpa o dispay uma única vez
+        lcd.clear();
+      }
+      lcd.setCursor(0, 0);
+      lcd.print("Salvia");
+      lcd.setCursor(0, 1);
+      lcd.print((char)126); //símbolo de seta para a direita
+      lcd.setCursor(1,1);  
+      lcd.print("Rucula");
+      clear1 = 3;
+      delay(100);
+      break;
+    case 3: //opção do alface
+      if(clear1 != 4){ //limpa o dispay uma única vez
+        lcd.clear();
+      }
+      lcd.setCursor(0, 0);
+      lcd.print("Rucula");
+      lcd.setCursor(0, 1);
+      lcd.print((char)126); //símbolo de seta para a direita
+      lcd.setCursor(1,1);  
+      lcd.print("Alface");
+      clear1 = 4;
+      delay(100);
+      break;
+    case 4: //opção do oregano
+      if(clear1 != 5){ //limpa o dispay uma única vez
+        lcd.clear();
+      }
+      lcd.setCursor(0, 0);
+      lcd.print("Alface");
+      lcd.setCursor(0, 1);
+      lcd.print((char)126); //símbolo de seta para a direita
+      lcd.setCursor(1,1);  
+      lcd.print("Oregano");
+      clear1 = 5;
+      delay(100);
+      break;
+    case 5: //opção do alecrim
+      if(clear1 != 6){ //limpa o dispay uma única vez
+        lcd.clear();
+      }
+      lcd.setCursor(0, 0);
+      lcd.print("Oregano");
+      lcd.setCursor(0, 1);
+      lcd.print((char)126); //símbolo de seta para a direita
+      lcd.setCursor(1,1);  
+      lcd.print("Alecrim");
+      clear1 = 6;
+      delay(100);
+      break;
+    case 6: //opção do morango
+      if(clear1 != 7){ //limpa o dispay uma única vez
+        lcd.clear();
+      }
+      lcd.setCursor(0, 0);
+      lcd.print("Alecrim");
+      lcd.setCursor(0, 1);
+      lcd.print((char)126); //símbolo de seta para a direita
+      lcd.setCursor(1,1);  
+      lcd.print("Morango");
+      clear1 = 7;
+      delay(100);
+      break; 
+    case 7: //opção do tomate-cereja
+      if(clear1 != 8){ //limpa o dispay uma única vez
+        lcd.clear();
+      }
+      lcd.setCursor(0, 0);
+      lcd.print("Morango");
+      lcd.setCursor(0, 1);
+      lcd.print((char)126); //símbolo de seta para a direita
+      lcd.setCursor(1,1);  
+      lcd.print("Tomate-cereja");
+      clear1 = 8;
+      delay(100);
+      break;
+    case 8: //opção personalizado
+      if(clear1 != 9){ //limpa o dispay uma única vez
+        lcd.clear();
+      }
+      lcd.setCursor(0, 0);
+      lcd.print("Tomate-cereja");
+      lcd.setCursor(0, 1);
+      lcd.print((char)126); //símbolo de seta para a direita
+      lcd.setCursor(1,1);  
+      lcd.print("Personalizado");
+      clear1 = 9;
+      delay(100);
+      break;
+  }
+}
+
+//Função para mostrar os valores que estão sendo lidos pelos sensores em um loop
+void info() {
+  if(var == 0){
+    if((millis() - millisTemp) < 3000){ //mostra a temperatura atual durante 3 segundos
+      lcd.setCursor(0, 0);  
+      lcd.print(temp);  
+      lcd.setCursor(0, 1); 
+      lcd.print(valTemp);  
+      lcd.setCursor(2, 1); 
+      lcd.print((char)223); //símbolo de grau ° 
+      lcd.setCursor(3, 1); 
+      lcd.print("C");
+    }
+    if((millis() - millisAr) < 3050 && (millis() - millisAr) > 3000){ //conta 50 milissegundos para limpar o display
+      lcd.clear();
+    }
+    if((millis() - millisAr) < 6000 && (millis() - millisAr) > 3050){ //mostra a umidade do ar atual durante 3 segundos
+      lcd.setCursor(0, 0);  
+      lcd.print(ar);  
+      lcd.setCursor(0, 1); 
+      lcd.setCursor(0, 1);  
+      lcd.print(valUmiAr);
+      lcd.setCursor(2, 1);  
+      lcd.print("%");
+    }
+    
+    if((millis() - millisSolo) < 6050 && (millis() - millisSolo) > 6000){ //conta 50 milissegundos para limpar o display
+      lcd.clear();
+    }
+    if((millis() - millisSolo) < 9000 && (millis() - millisSolo) > 6050){ //mostra a umidade do solo atual durante 3 segundos
+      lcd.setCursor(0, 0);  
+      lcd.print(solo);  
+      lcd.setCursor(0, 1); 
+      lcd.print(valUmiSolo);  
+      lcd.setCursor(2, 1);  
+      lcd.print("%");
+    }
+
+    if((millis() - millisTemp) > 9000 &&
+    (millis() - millisAr) > 9000 &&
+    (millis() - millisSolo) > 9000){ //reseta os millis após um ciclo completo de 9 segundos
+      lcd.clear();
+      millisTemp = millis();
+      millisAr = millis();
+      millisSolo = millis();
+   }
+  }
+}
+  
+  //Função para selecionar um dos itens do menu, identificar qual foi e mandar o valor da opção como parametro para os sensores
+void confirma(){
+  //se não for a opção personalizada, vai exibir a palavra 'selecionado' durante 1,5 segundos
+  if(upDown != 8){ 
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Selecionado");
+  upDown = 0;
+  var = 0;
+  delay(1500);
+  } 
+  
+  switch(upDown){
+   case 0: //valores ideais da camomila
+     valTempMin = 15;
+     valTempMax = 25;
+     valLuz = 36000000;
+     valUmi = 25;
+     break;
+   case 1: //valores ideais da salvia
+     valTempMin = 15;
+     valTempMax = 25;
+     valLuz = 36000000;
+     valUmi = 25;
+     break;   
+   case 2: //valores ideais da rucula
+     valTempMin = 15;
+     valTempMax = 21;
+     valLuz = 28800000;
+     valUmi = 35;
+     break;
+   case 3: //valores ideais do alface 
+     valTempMin = 15;
+     valTempMax = 21;
+     valLuz = 28800000;
+     valUmi = 35;
+     break;
+   case 4: //valores ideais do oregano
+     valTempMin = 15;
+     valTempMax = 25;
+     valLuz = 36000000;
+     valUmi = 25;
+     break;
+   case 5: //valores ideais do alecrim
+     valTempMin = 15;
+     valTempMax = 25;
+     valLuz = 36000000;
+     valUmi = 25;
+     break;
+   case 6: //valores ideais do morango
+     valTempMin = 15;
+     valTempMax = 25;
+     valLuz = 36000000;
+     valUmi = 35;
+     break;
+   case 7: //valores ideais do tomate-cereja
+     valTempMin = 15;
+     valTempMax = 25;
+     valLuz = 36000000;
+     valUmi = 35;
+     break;
+   case 8: //chama a função personalizado()
+     var = 4;
+     break;
+  }
+}
+
+//Função para a opção 'personalizado' - abre um submenu
+void personalizado(){
+    if(clear2 != 1){ //limpa o display uma única vez
+      lcd.clear();
+    }
+    lcd.setCursor(0, 0);
+    lcd.print("- PERSONALIZAR -");
+    lcd.setCursor(0, 1);
+    lcd.print((char)126); //símbolo de seta para a direita
+    lcd.setCursor(1,1);  
+    lcd.print("Temperatura Min"); //opção da temperatura mínima
+    clear2 = 1;
+    delay(100);
+  
+   char keypressed = keypad.getKey();
+   if(keypressed == 'B'){ //da scroll para as opções do submenu  
+     opcoes++;
+     var = 5;
+   }
+
+  if(keypressed == 'D'){ //volta para o menu
+    upDown = 0;
+    var = 1;
+  } 
+  
+  if(keypressed == 'C'){ //seleciona a opção e entra na funciona confirma2()
+    var = 6;
+    conf4 = 0;
+  }
+}
+
+//Função para as opções do submenu personalizado
+void opcoesPer(int opcoes,char key){ 
+  switch(opcoes){
+    case 1: //opção da temperatura máxima
+      if(clear2 != 2){ //limpa o display uma única vez
+        lcd.clear(); 
+      }
+      lcd.setCursor(0, 0);
+      lcd.print("Temperatura Min");
+      lcd.setCursor(0, 1);
+      lcd.print((char)126); //símbolo de seta para a direita
+      lcd.setCursor(1,1);  
+      lcd.print("Temperatura Max");
+      clear2 = 2;
+      delay(100);
+      break;
+      
+    case 2: //opção da umidade do solo
+      if(clear2 != 3){ //limpa o display uma única vez
+        lcd.clear();
+      }
+      lcd.setCursor(0, 0);
+      lcd.print("Temperatura Max");
+      lcd.setCursor(0, 1);
+      lcd.print((char)126); //símbolo de seta para a direita
+      lcd.setCursor(1,1);  
+      lcd.print("Umidade do solo");
+      clear2 = 3;
+      delay(100);
+      break;
+    case 3: //opção do tempo de luz
+      if(clear2 != 4){ //limpa o display uma única vez
+        lcd.clear();
+      }
+      lcd.setCursor(0, 0);
+      lcd.print("Umidade do solo");
+      lcd.setCursor(0, 1);
+      lcd.print((char)126); //símbolo de seta para a direita
+      lcd.setCursor(1,1);  
+      lcd.print("Tempo de luz");
+      clear2 = 4;
+      delay(100);
+      break;
+  }
+
+  if(key == 'C') {  //seleciona a opção e entra na funciona confirma2()
+    var = 6;
+    conf4 = 0;
+  }
+  
+  if(key == 'B'){ //da scroll pelas opções do submenu 
+    opcoes++;
+    if(opcoes > 3){
+      opcoes = 3;
+    }
+  }
+
+  if(keypressed == 'D'){ //volta para o menu
+    upDown = 0;
+    var = 1;
+  }
+}
+
+//Função para digitar um valor no teclado e mandar esse valor como parametro para os sensores
+void confirma2(char key, int conf4) {
+  char key2[2];
+  
+  if(conf2 == 0) {
+     lcd.clear(); //limpa o display uma única vez
+  }
+  
+  lcd.setCursor(0, 0);
+  lcd.print("Insira um valor:"); 
+  if(key == '1' || key == '2' || key == '3' || key == '4' || key == '5' || 
+  key == '6' || key == '7' || key == '8' || key == '9' || key == '0') { //verifica se algum número foi pressionado
+    if(v == 1){ //2ª etapa exibe no display o segundo número digitado
+      key2[1] = key;
+      lcd.setCursor(1, 1);
+      lcd.print(key2[1]);
+      num2 = key2[1] - '0'; 
+      v = 2;
+    }
+    
+    if(v == 0) { //1ª etapa exibe no display o primeiro número digitado
+      key2[0] = key; 
+      lcd.setCursor(0, 1);
+      lcd.print(key2[0]);
+      num1 = key2[0] - '0';
+      v = 1;
+    }
+    count++;
+  }
+
+  conf2 = 2;
+
+  if(key == '#'){ //botão # para limpar os números digitados
+    lcd.setCursor(0, 1);
+    lcd.print(" ");
+    lcd.setCursor(1, 1);
+    lcd.print(" ");
+    key2[0] = '0';
+    key2[1] = '0';
+    num1 = 0;
+    num2 = 0;
+    num = 0;
+    v = 0;
+  }
+
+    if(key == 'C') { //confirma o que foi digitado e envia o valor para a opção escolhida
+      var = 5;
+      if(count > 1){ 
+        num1 *= 10; //multiplica o primeiro número por 10
+        count = 0;
+      }
+      num = num1 + num2; //soma o primeiro e o segundo número       
+      if(opcoes == 0) { //opção da temperatura mínima
+        valTempMin = num;
+        millisRes = millis(); //zera a contagem do millis
+      }
+      if(opcoes == 1) { //opção da temperatura máxima
+        valTempMax = num;
+        millisCoolers = millis(); //zera a contagem do millis
+      }
+      if(opcoes == 2) { //opção da umidade do solo
+        valUmi = num;
+        millisSolen = millis(); //zera a contagem do millis
+        
+      }
+      if(opcoes == 3){ //opção do tempo de luz
+        num *= 3600000; //multiplica o número digitado por 3600000 milissegundos para configurá-lo em horas 
+        valLuz = num;
+        millisLuz = millis(); //zera a contagem do millis
+      }
+      
+      if(conf4 != 0) { //condição para voltar ao submenu após confirmar o número
+        var = 4;
+        opcoes = 0;
+      }
+      //limpa tudo que foi digitado para inserir outro valor
+      key2[0] = '0';
+      key2[1] = '0';
+      num1 = 0;
+      num2 = 0;
+      num = 0;
+      v = 0;
+      conf2 = 0;
+  }
+  delay(100);
+}
